@@ -14,9 +14,9 @@ const startServer = async () => {
 };
 
 // If running locally, start the server
-if (process.env.IS_OFFLINE) {
-  startServer();
-}
+// if (process.env.IS_OFFLINE) {
+//   startServer();
+// }
 
 // Export the handler for AWS Lambda
 module.exports.handler = serverless(server);
