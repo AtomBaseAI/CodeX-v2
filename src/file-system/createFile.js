@@ -1,7 +1,6 @@
-const fs = require("fs/promises");
+const fs = require("fs").promises;
 const path = require("path");
-const runCode = require("../services/codeRunner");
-const deletingTempFiles = require("./deleteFile");
+const os = require("os");
 
 const extensions = {
   cpp: "cpp",
@@ -11,15 +10,18 @@ const extensions = {
   javascript: "js",
 };
 
-async function createFiles(jsonMsg) {
+async function createFiles(json_msg) {
+  const tempDir = os.tmpdir();
+  const filePath = path.join(tempDir, `${json_msg.filename}.${extensions[json_msg.lang]}`);
+
   try {
-    const filePath = path.join(process.cwd(), `/temp/${jsonMsg.filename}.${extensions[jsonMsg.lang]}`);
-    await fs.writeFile(filePath, jsonMsg.src);
-    const result = await runCode(jsonMsg);
-    return result;
+    await fs.writeFile(filePath, json_msg.src);
+    console.log("Source file created");
+    const ans = await runCode({ ...json_msg, filePath });
+    return ans;
   } catch (error) {
-    console.error(error);
-    await deletingTempFiles();
+    console.log(error);
+    await deletingTempFiles(tempDir);
     throw error;
   }
 }
