@@ -1,6 +1,6 @@
 const { spawn } = require("child_process");
-const path = require("path");
 const deletingTempFiles = require("../file-system/deleteFile");
+const os = require("os");
 
 const extensions = {
   cpp: "cpp",
@@ -10,62 +10,66 @@ const extensions = {
   javascript: "js",
 };
 
-async function runCode(jsonMsg) {
+async function runCode(json_msg) {
+  const tempDir = os.tmpdir();
+  
   try {
     const timeout = 20;
-    const { comCommand, comArgs, exCommand, exArgs } = commandMap(jsonMsg.filename, extensions[jsonMsg.lang]);
+    const { comCommand, comArgs, exCommand, exArgs } = commandMap(
+      json_msg.filename,
+      extensions[json_msg.lang],
+      tempDir
+    );
 
     if (comCommand) {
-      await executeCommand(comCommand, comArgs);
+      await new Promise((resolve, reject) => {
+        const compiledCode = spawn(comCommand, comArgs || []);
+        compiledCode.stderr.on("data", (error) => {
+          reject({ status: "Failed", error: error.toString() });
+        });
+        compiledCode.on("exit", () => {
+          resolve();
+        });
+      });
     }
 
-    const result = await executeCommand(exCommand, exArgs, jsonMsg.stdin.toString(), timeout);
-    await deletingTempFiles();
+    const result = await new Promise((resolve, reject) => {
+      const exCode = spawn(exCommand, exArgs || []);
+      let output = "",
+        error = "";
+
+      const timer = setTimeout(async () => {
+        exCode.kill("SIGHUP");
+        reject({
+          status: "Runtime Error",
+          error: `Timed Out. Your code took too long to execute, over ${timeout} seconds.`,
+        });
+      }, timeout * 1000);
+
+      exCode.stdin.write(json_msg.stdin.toString());
+      exCode.stdin.end();
+
+      exCode.stdout.on("data", (data) => {
+        output += data.toString();
+      });
+
+      exCode.stderr.on("data", (data) => {
+        error += data.toString();
+      });
+
+      exCode.on("exit", () => {
+        clearTimeout(timer);
+        resolve({ output, error });
+      });
+    });
+
+    await deletingTempFiles(tempDir);
     return result;
   } catch (error) {
-    console.error(error);
-    await deletingTempFiles();
+    console.log(error);
+    await deletingTempFiles(tempDir);
     throw error;
   }
-}
-
-function commandMap(filename, language) {
-  const tempPath = path.join(process.cwd(), `/temp/${filename}`);
-  const commands = {
-    java: { exCommand: "java", exArgs: [`${tempPath}.java`] },
-    cpp: { comCommand: "g++", comArgs: [`${tempPath}.cpp`, "-o", `${tempPath}.out`], exCommand: `${tempPath}.out` },
-    c: { comCommand: "gcc", comArgs: [`${tempPath}.c`, "-o", `${tempPath}.out`], exCommand: `${tempPath}.out` },
-    python3: { exCommand: "python3", exArgs: [`${tempPath}.py`] },
-    javascript: { exCommand: "node", exArgs: [`${tempPath}.js`] },
-  };
-  return commands[language];
-}
-
-function executeCommand(command, args, input = "", timeout = 20) {
-  return new Promise((resolve, reject) => {
-    const process = spawn(command, args);
-    let output = "", error = "";
-
-    const timer = setTimeout(() => {
-      process.kill("SIGHUP");
-      reject(new Error(`Timed out after ${timeout} seconds`));
-    }, timeout * 1000);
-
-    process.stdin.write(input);
-    process.stdin.end();
-
-    process.stdout.on("data", data => output += data.toString());
-    process.stderr.on("data", data => error += data.toString());
-
-    process.on("exit", () => {
-      clearTimeout(timer);
-      if (error) {
-        reject(new Error(error));
-      } else {
-        resolve({ output });
-      }
-    });
-  });
 }
 
 module.exports = runCode;
