@@ -1,22 +1,20 @@
-const express = require("express");
 const serverless = require("serverless-http");
-const cors = require("cors");
-const routes = require("./routes/index");
-const { PORT } = require("./config/server-config");
+const express = require("express");
+const bodyParser = require("body-parser");
+const CompileService = require("./services/compileService");
 
-const server = express();
-server.use(express.json());
-server.use(cors());
-server.use("/", routes);
+const app = express();
+app.use(bodyParser.json());
 
-const startServer = async () => {
-  server.listen(PORT, () => console.log(`Server started at port ${PORT}`));
-};
+const compileService = new CompileService();
 
-// If running locally, start the server
-// if (process.env.IS_OFFLINE) {
-//   startServer();
-// }
+app.post("/compile", async (req, res) => {
+  try {
+    const result = await compileService.runCode(req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.toString() });
+  }
+});
 
-// Export the handler for AWS Lambda
-module.exports.handler = serverless(server);
+module.exports.handler = serverless(app);
